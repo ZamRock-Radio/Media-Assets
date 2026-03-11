@@ -1,3 +1,7 @@
+#!/bin/bash
+
+git fetch -p &>/dev/null
+
 # ---------- 3️⃣  Show menu ----------------------------------------------------
 echo
 echo "⚙️  What would you like to do?"
@@ -5,8 +9,9 @@ echo "   (c) Switch to an existing branch"
 echo "   (a) Add a new branch"
 echo "   (s) Stage a commit & push"
 echo "   (v) View / Stash / Apply unstaged changes"
-echo "   (r) Refresh current branch (pull from remote)"
-read -r -p "Choose: [c/a/s/v/r] " choice
+echo "   (r) Refresh current branch (rebase onto main)"
+echo "   (d) Delete stale local branches (no longer on remote)"
+read -r -p "Choose: [c/a/s/v/r/d] " choice
 choice=${choice:-c}
 case $choice in
   c|C) action=switch ;;
@@ -14,6 +19,7 @@ case $choice in
   s|S) action=stage ;;
   v|V) action=view_unstaged ;;
   r|R) action=refresh ;;
+  d|D) action=delete_stale ;;
   *) echo "❌  Unknown choice." >&2; exit 1 ;;
 esac
 
@@ -21,26 +27,18 @@ esac
 if [[ $action == refresh ]]; then
   current_branch=$(git rev-parse --abbrev-ref HEAD)
   echo
-  echo "🔄  Refreshing branch: '$current_branch'"
-
-  # Check if there's an upstream set
-  if ! git rev-parse --abbrev-ref --symbolic-full-name @{u} &>/dev/null; then
-    echo "⚠️  No upstream branch set for '$current_branch'."
-    echo "   Use 'git branch --set-upstream-to=origin/$current_branch' to link it."
-    exit 1
-  fi
-
-  upstream=$(git rev-parse --abbrev-ref --symbolic-full-name @{u})
-  echo "   Upstream: $upstream"
+  echo "🔄  Refreshing branch: '$current_branch' from 'origin/main'"
 
   # Check for unstaged changes
   if git status -s | grep -q .; then
     echo
     echo "You have unstaged changes:"
     git status -s
-    read -r -p "Stash them before refreshing? (y/N): " stash_answer
+    read -r -p "Stash them before refreshing? (y/N/b): " stash_answer
     stash_answer=${stash_answer:-N}
-    if [[ $stash_answer =~ ^[Yy]$ ]]; then
+    if [[ $stash_answer =~ ^[Bb]$ ]]; then
+      exec "$0"
+    elif [[ $stash_answer =~ ^[Yy]$ ]]; then
       echo "git stash push -u -m \"stash before refresh\""
       git stash push -u -m "stash before refresh"
     else
@@ -54,15 +52,15 @@ if [[ $action == refresh ]]; then
   echo "📊  Current status:"
   git status -sb
 
-  # Fetch latest from remote
+  # Fetch latest from origin main
   echo
   echo "git fetch origin"
   git fetch origin
 
-  # Pull with rebase
+  # Rebase current branch onto origin/main
   echo
-  echo "git pull --rebase origin \"$current_branch\""
-  git pull --rebase origin "$current_branch"
+  echo "git rebase origin/main"
+  git rebase origin/main
 
   # Show final status
   echo
@@ -78,6 +76,37 @@ if [[ $action == refresh ]]; then
       echo "git stash pop"
       git stash pop
     fi
+  fi
+
+  exit 0
+fi
+
+# ---------- 4️⃣  Action: Delete stale local branches ----------------------------
+if [[ $action == delete_stale ]]; then
+  echo "🔄  Fetching and pruning remote-tracking branches..."
+  git fetch -p
+
+  echo
+  echo "📋  Stale branches (no longer on remote):"
+  stale_branches=$(git branch -vv | grep ': gone]' | awk '{print $1}')
+  
+  if [[ -z $stale_branches ]]; then
+    echo "✅  No stale branches found."
+    exit 0
+  fi
+
+  echo "$stale_branches"
+  echo
+  read -r -p "Delete all these branches? (y/N): " confirm
+  confirm=${confirm:-N}
+  if [[ $confirm =~ ^[Yy]$ ]]; then
+    echo "$stale_branches" | while read -r branch; do
+      echo "git branch -d \"$branch\""
+      git branch -d "$branch"
+    done
+    echo "✔  Stale branches deleted."
+  else
+    echo "❌  Cancelled."
   fi
 
   exit 0
@@ -104,9 +133,10 @@ if [[ $action == view_unstaged ]]; then
   echo "   (s) Stash these changes"
   echo "   (a) Apply the most recent stash (if any)"
   echo "   (l) List all stashes"
+  echo "   (b) Back to menu"
   echo "   (c) Cancel"
-  read -r -p "Choose: [s/a/l/c] " sub_choice
-  sub_choice=${sub_choice:-c}
+  read -r -p "Choose: [s/a/l/b/c] " sub_choice
+  sub_choice=${sub_choice:-b}
 
   case $sub_choice in
     s|S)
@@ -127,6 +157,9 @@ if [[ $action == view_unstaged ]]; then
       echo "📋  List of stashes:"
       git stash list
       ;;
+    b|B)
+      exec "$0"
+      ;;
     c|C)
       echo "✅  Cancelled."
       ;;
@@ -140,15 +173,19 @@ fi
 # ---------- 6️⃣  Action: Switch branch ----------------------------------------
 if [[ $action == switch ]]; then
   echo
-  echo "📁  Local branches (git branch --list):"
-  echo "git branch --list"
-  git branch --list
+  echo "📁  Branches on remote (git branch -r):"
+  echo "git branch -r"
+  git branch -r | grep -v -- '->' | sed 's|origin/||'
 
-  read -r -p "Enter branch name (or number) to checkout: " sel
+  read -r -p "Enter branch name (or number) to checkout (b for back): " sel
+
+  if [[ $sel =~ ^[Bb]$ ]]; then
+    exec "$0"
+  fi
 
   # Convert numeric selection to a branch name
   if [[ $sel =~ ^[0-9]+$ ]]; then
-    branches=($(git branch --format="%(refname:short)"))
+    branches=($(git branch -r | grep -v -- '->' | sed 's|origin/||'))
     if (( sel < 0 || sel >= ${#branches[@]} )); then
       echo "❌  Invalid index." >&2; exit 1
     fi
@@ -159,9 +196,11 @@ if [[ $action == switch ]]; then
   if git status -s | grep -q .; then
     echo "You have uncommitted changes:"
     git status -s
-    read -r -p "Stash them before switching branches? (y/N): " stash_answer
+    read -r -p "Stash them before switching branches? (y/N/b): " stash_answer
     stash_answer=${stash_answer:-N}
-    if [[ $stash_answer =~ ^[Yy]$ ]]; then
+    if [[ $stash_answer =~ ^[Bb]$ ]]; then
+      exec "$0"
+    elif [[ $stash_answer =~ ^[Yy]$ ]]; then
       echo "git stash -u -m \"stash before checkout\""
       git stash -u -m "stash before checkout"
     else
