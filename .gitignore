@@ -2,3 +2,7 @@
 Thumbs.db
 *.bak
 *.orig
+
+# Generated watermark outputs — ephemeral, not tracked
+Press/releases/*.jpg
+Press/releases/*.png
