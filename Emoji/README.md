@@ -1,0 +1,1 @@
+ZamRock emoji collection.
