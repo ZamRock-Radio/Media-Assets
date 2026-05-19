@@ -13,6 +13,26 @@ Media-Assets/
 └── Tools/          — Scripts for working with assets
 ```
 
+## Watermark Tool
+
+`Tools/watermark.py` adds ZamRock branding to images:
+
+```bash
+# Watermark a file (saves copy next to original)
+python3 Tools/watermark.py path/to/image.jpg
+
+# Save to Press/releases/ with timestamp
+python3 Tools/watermark.py path/to/image.jpg --press
+```
+
+**Branch rule:** Always use the `watermark-maker` branch when watermarking repo pics. This keeps watermarked outputs separate from the main branch.
+
+```
+git checkout watermark-maker
+# run watermark tool…
+git add Press/releases/   # if committing outputs
+```
+
 ## Usage
 
 - **Press inquiries:** See `Press/` for logos, bio, and watermarked images
